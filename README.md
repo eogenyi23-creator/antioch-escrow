@@ -21,7 +21,7 @@ Antioch Escrow is a smart contract for giving that people can verify. A donor fu
 
 It was built for mission, scholarship and church-project funding, but it is a general "release funds when work is verified" primitive. Any project can reuse it.
 
-This repository is the contract and its TypeScript client. The web platform that uses it lives in [antioch-app](https://github.com/YOUR-ORG/antioch-app).
+This repository is the contract and its TypeScript client. The web platform that uses it lives in [antioch-app](https://github.com/eogenyi23-creator/antioch-app).
 
 ## ✨ Features
 
