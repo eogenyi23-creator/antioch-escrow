@@ -9,7 +9,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-blue.svg)](CONTRIBUTING.md)
 [![Stellar](https://img.shields.io/badge/Built%20on-Soroban-0e75dd.svg)](https://stellar.org/soroban)
 
-[Design](docs/design.md) · [Security](docs/security.md) · [Antioch App](https://github.com/YOUR-ORG/antioch-app) · [Report a Bug](https://github.com/YOUR-ORG/antioch-escrow/issues)
+[Design](docs/design.md) · [Security](docs/security.md) · [Antioch App]([https://github.com/YOUR-ORG/antioch-app](https://github.com/eogenyi23-creator/antioch-app)) · [Report a Bug](https://github.com/YOUR-ORG/antioch-escrow/issues)
 
 </div>
 
