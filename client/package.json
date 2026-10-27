@@ -1,0 +1,28 @@
+{
+  "name": "@antioch/escrow-client",
+  "version": "0.1.0",
+  "description": "TypeScript client for the Antioch Escrow Soroban contract. Builds unsigned transaction XDR and reads state; never holds keys.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint 'src/**/*.ts' --max-warnings 0",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["stellar", "soroban", "escrow", "antioch"],
+  "license": "MIT",
+  "dependencies": {
+    "@stellar/stellar-sdk": "17.4.0"
+  },
+  "devDependencies": {
+    "@types/jest": "30.0.0",
+    "@typescript-eslint/eslint-plugin": "8.72.1",
+    "@typescript-eslint/parser": "8.72.1",
+    "eslint": "10.13.0",
+    "jest": "30.5.2",
+    "ts-jest": "29.4.15",
+    "typescript": "5.9.3"
+  }
+}
