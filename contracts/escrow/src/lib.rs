@@ -14,7 +14,7 @@ use storage::{
     is_donor_refunded, is_initialized, is_milestone_released, set_approval_count, set_approved,
     set_approvers, set_beneficiary, set_donor_contribution, set_donor_refunded, set_expiry_ledger,
     set_funded_total, set_initialized, set_milestone_released, set_milestones, set_released_total,
-    set_threshold, set_token, ApprovalKey, State,
+    set_threshold, set_token, ApprovalKey, DonorKey, MilestoneKey, State,
 };
 
 // ---------------------------------------------------------------------------
@@ -22,6 +22,17 @@ use storage::{
 // ---------------------------------------------------------------------------
 
 pub use soroban_sdk::token::TokenClient as SacToken;
+
+// ---------------------------------------------------------------------------
+// TTL constants
+// ---------------------------------------------------------------------------
+
+/// Low-water TTL mark: if an entry's remaining TTL falls below this value,
+/// extend it. ~1 day = 17,280 ledgers (at ~5 s per ledger).
+const TTL_THRESHOLD: u32 = 17_280;
+
+/// Target TTL after extension. ~30 days = 518,400 ledgers.
+const TTL_TARGET: u32 = 518_400;
 
 // ---------------------------------------------------------------------------
 // Contract struct
@@ -36,17 +47,29 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    // --- initialization ---------------------------------------------------
+    // --- constructor (atomic deploy + init) --------------------------------
 
-    /// Initialize the escrow. Callable once.
+    /// Initialize the escrow. Called once at deploy time via `__constructor`.
+    ///
+    /// Using `__constructor` makes deploy and initialization atomic: the
+    /// contract cannot be front-run between deploy and init because there is
+    /// no separate init call.
     ///
     /// Validates:
     /// - `threshold` in 1..=N (where N = number of approvers)
     /// - no duplicate approvers
-    /// - at least one milestone
-    /// - every milestone amount > 0
-    /// - `expiry_ledger` in the future
-    pub fn init(
+    /// - at least one milestone, every amount > 0
+    /// - `expiry_ledger` strictly in the future (`> env.ledger().sequence()`)
+    ///
+    /// # Errors
+    /// - [`Error::AlreadyInitialized`] if called more than once (should never
+    ///   happen via `__constructor`, but guarded for safety).
+    /// - [`Error::InvalidThreshold`] if threshold is 0 or > N.
+    /// - [`Error::DuplicateApprover`] if any approver appears more than once.
+    /// - [`Error::InvalidMilestone`] if milestones is empty.
+    /// - [`Error::AmountMustBePositive`] if any milestone amount ≤ 0.
+    /// - [`Error::InvalidExpiry`] if `expiry_ledger ≤ env.ledger().sequence()`.
+    pub fn __constructor(
         env: Env,
         approvers: Vec<Address>,
         threshold: u32,
@@ -87,8 +110,9 @@ impl EscrowContract {
             }
         }
 
+        // Use InvalidExpiry (not NotExpired) for a bad expiry at construction.
         if expiry_ledger <= env.ledger().sequence() {
-            soroban_sdk::panic_with_error!(env, Error::NotExpired);
+            soroban_sdk::panic_with_error!(env, Error::InvalidExpiry);
         }
 
         set_initialized(&env);
@@ -107,7 +131,18 @@ impl EscrowContract {
     // --- funding -----------------------------------------------------------
 
     /// Deposit tokens from `donor` into the contract.
-    /// Rejects if expired or completed.
+    ///
+    /// Rejects if:
+    /// - expired or completed
+    /// - `amount ≤ 0`
+    /// - funding would push `funded_total` above the sum of all milestone
+    ///   amounts ([`Error::FundingCapExceeded`])
+    ///
+    /// # Errors
+    /// - [`Error::Expired`] / [`Error::AlreadyReleased`] if escrow is not Active.
+    /// - [`Error::AmountMustBePositive`] if `amount ≤ 0`.
+    /// - [`Error::FundingCapExceeded`] if `funded_total + amount > milestone_sum`.
+    /// - [`Error::Overflow`] on arithmetic overflow.
     pub fn fund(env: Env, donor: Address, amount: i128) {
         donor.require_auth();
 
@@ -123,6 +158,23 @@ impl EscrowContract {
             soroban_sdk::panic_with_error!(env, Error::AlreadyReleased);
         }
 
+        // Enforce funding cap: funded_total + amount must not exceed
+        // the sum of all milestone amounts.
+        let milestones = get_milestones(&env);
+        let mut milestone_sum: i128 = 0;
+        for i in 0..milestones.len() {
+            milestone_sum = milestone_sum
+                .checked_add(milestones.get(i).unwrap())
+                .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, Error::Overflow));
+        }
+        let prev_funded = get_funded_total(&env);
+        let new_funded = prev_funded
+            .checked_add(amount)
+            .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, Error::Overflow));
+        if new_funded > milestone_sum {
+            soroban_sdk::panic_with_error!(env, Error::FundingCapExceeded);
+        }
+
         // Transfer tokens from donor to the contract.
         let token_addr = get_token(&env);
         let sac = SacToken::new(&env, &token_addr);
@@ -135,11 +187,6 @@ impl EscrowContract {
             .checked_add(amount)
             .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, Error::Overflow));
         set_donor_contribution(&env, &donor, new_contribution);
-
-        let prev_funded = get_funded_total(&env);
-        let new_funded = prev_funded
-            .checked_add(amount)
-            .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, Error::Overflow));
         set_funded_total(&env, new_funded);
 
         events::fund(&env, &donor, amount);
@@ -148,8 +195,16 @@ impl EscrowContract {
     // --- approval ----------------------------------------------------------
 
     /// Record an approval from `approver` for milestone `index`.
+    ///
     /// When approvals reach the threshold, attempt to release automatically.
     /// If funds are short, the approval is kept but the milestone stays pending.
+    ///
+    /// # Errors
+    /// - [`Error::Expired`] / [`Error::AlreadyReleased`] if escrow is not Active.
+    /// - [`Error::InvalidMilestone`] if index is out of bounds.
+    /// - [`Error::AlreadyReleased`] if the milestone was already released.
+    /// - [`Error::Unauthorized`] if approver is not in the fixed set.
+    /// - [`Error::AlreadyApproved`] if this approver already approved this milestone.
     pub fn approve_milestone(env: Env, approver: Address, index: u32) {
         approver.require_auth();
 
@@ -213,7 +268,16 @@ impl EscrowContract {
     // --- release -----------------------------------------------------------
 
     /// Release a milestone whose threshold is met and whose funds are now sufficient.
-    /// Callable by anyone. Respects the in-order rule.
+    ///
+    /// Callable by anyone. Respects the in-order rule. The beneficiary is fixed
+    /// at construction, so permissionless release adds no trust risk.
+    ///
+    /// # Errors
+    /// - [`Error::Expired`] if the escrow has expired.
+    /// - [`Error::AlreadyReleased`] if this milestone was already released.
+    /// - [`Error::OutOfOrder`] if milestone n-1 has not yet been released.
+    /// - [`Error::ThresholdNotMet`] if insufficient approvals recorded.
+    /// - [`Error::InsufficientFunds`] if unreleased balance < milestone amount.
     pub fn release_milestone(env: Env, index: u32) {
         match Self::try_release(&env, index) {
             Ok(()) => {}
@@ -222,7 +286,10 @@ impl EscrowContract {
     }
 
     /// Attempt to release milestone `index`. Returns `Ok(())` on success or
-    /// `Err(Error)` on failure. Does not panic — the caller decides what to do.
+    /// `Err(Error)` on failure. Does not panic — the caller decides.
+    ///
+    /// State mutation (released flag and released_total) is committed **before**
+    /// the token transfer to prevent double-release even if the transfer reverts.
     fn try_release(env: &Env, index: u32) -> Result<(), Error> {
         let state = derive_state(env);
         if state == State::Expired {
@@ -247,34 +314,35 @@ impl EscrowContract {
             return Err(Error::OutOfOrder);
         }
 
-        // Threshold met?
+        // Threshold met? Use ThresholdNotMet (not InsufficientFunds) for this case.
         let threshold = get_threshold(env);
         let count = get_approval_count(env, index);
         if count < threshold {
-            return Err(Error::InsufficientFunds);
+            return Err(Error::ThresholdNotMet);
         }
 
         // Funds sufficient?
         let amount = milestones.get(index).unwrap();
         let funded = get_funded_total(env);
         let released = get_released_total(env);
-        // unreleased = funded - released (checked)
         let unreleased = funded.checked_sub(released).ok_or(Error::Overflow)?;
         if unreleased < amount {
             return Err(Error::InsufficientFunds);
         }
 
-        // Transfer to beneficiary.
+        // Commit state changes BEFORE the token transfer.
+        // This prevents a re-entrant or reverted transfer from allowing a
+        // second release attempt.
+        set_milestone_released(env, index, true);
+        let new_released = released.checked_add(amount).ok_or(Error::Overflow)?;
+        set_released_total(env, new_released);
+
+        // Transfer to beneficiary (after state is committed).
         let token_addr = get_token(env);
         let sac = SacToken::new(env, &token_addr);
         let beneficiary = get_beneficiary(env);
         let contract_addr = env.current_contract_address();
         sac.transfer(&contract_addr, &beneficiary, &amount);
-
-        // Mark released and update totals.
-        set_milestone_released(env, index, true);
-        let new_released = released.checked_add(amount).ok_or(Error::Overflow)?;
-        set_released_total(env, new_released);
 
         events::release(env, index, amount, &beneficiary);
 
@@ -284,7 +352,17 @@ impl EscrowContract {
     // --- refund ------------------------------------------------------------
 
     /// Refund a donor's pro-rata share of the unreleased balance after expiry.
-    /// Each donor can refund once.
+    ///
+    /// Each donor can refund once. Refund math:
+    /// `refund = contribution × (funded_total − released_total) ÷ funded_total`
+    ///
+    /// Integer division rounds down; dust stays in the contract.
+    ///
+    /// # Errors
+    /// - [`Error::NotExpired`] if the escrow has not yet expired.
+    /// - [`Error::NothingToRefund`] if the donor has zero contribution or
+    ///   has already refunded.
+    /// - [`Error::Overflow`] on arithmetic overflow.
     pub fn refund(env: Env, donor: Address) -> i128 {
         donor.require_auth();
 
@@ -355,6 +433,9 @@ impl EscrowContract {
     }
 
     /// Get milestone amount and released flag by index.
+    ///
+    /// # Errors
+    /// - [`Error::InvalidMilestone`] if `index` is out of bounds.
     pub fn milestone(env: Env, index: u32) -> (i128, bool) {
         let milestones = get_milestones(&env);
         if index >= milestones.len() {
@@ -371,6 +452,9 @@ impl EscrowContract {
     }
 
     /// Get the number of approvals recorded for a milestone.
+    ///
+    /// # Errors
+    /// - [`Error::InvalidMilestone`] if `index` is out of bounds.
     pub fn approvals(env: Env, index: u32) -> u32 {
         let milestones = get_milestones(&env);
         if index >= milestones.len() {
@@ -386,31 +470,65 @@ impl EscrowContract {
 
     // --- TTL ---------------------------------------------------------------
 
-    /// Extend storage TTL for persistent entries starting from `start_index`.
-    /// Helps long-lived escrows avoid archival.
+    /// Extend storage TTL for instance data and per-milestone entries starting
+    /// from `start_index`.
     ///
-    /// `threshold` is the low-water mark: if TTL is below this, extend to `extend_to`.
-    /// Both are in number of ledgers. ~30 days = 51840 ledgers (at ~5s per ledger).
+    /// Ledger timing (at ~5 s per ledger):
+    /// - 1 day  ≈ 17,280 ledgers
+    /// - 30 days ≈ 518,400 ledgers
+    ///
+    /// Entries are only extended if their current TTL is below
+    /// [`TTL_THRESHOLD`] (1 day). They are extended to [`TTL_TARGET`] (30 days).
+    ///
+    /// Call this periodically (e.g. monthly) to keep a long-lived escrow from
+    /// being archived. For donor-specific entries, call [`maintain_donor_ttl`].
+    ///
+    /// [`maintain_donor_ttl`]: Self::maintain_donor_ttl
     pub fn maintain_ttl(env: Env, start_index: u32) {
+        // Bump instance storage (holds config, totals, approvers, etc.).
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_TARGET);
+
         let milestones = get_milestones(&env);
         let count = milestones.len();
 
-        // Bump instance data.
-        env.storage().instance().extend_ttl(1000, 51840);
-
-        // Bump milestone and approval entries.
         for i in start_index..count {
-            // Bump released flag.
-            let key_released = storage::MilestoneKey::Released(i);
-            env.storage()
-                .persistent()
-                .extend_ttl(&key_released, 1000, 51840);
+            // Bump released flag — only if the entry exists.
+            let key_released = MilestoneKey::Released(i);
+            if env.storage().persistent().has(&key_released) {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&key_released, TTL_THRESHOLD, TTL_TARGET);
+            }
 
-            // Bump approval count.
-            let key_count = storage::MilestoneKey::ApprovalCount(i);
+            // Bump approval count — only if the entry exists.
+            let key_count = MilestoneKey::ApprovalCount(i);
+            if env.storage().persistent().has(&key_count) {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&key_count, TTL_THRESHOLD, TTL_TARGET);
+            }
+        }
+    }
+
+    /// Extend storage TTL for a single donor's contribution and refund entries.
+    ///
+    /// Call this for each active donor when maintaining a long-lived escrow.
+    /// Entries are only extended if they exist and are below [`TTL_THRESHOLD`].
+    pub fn maintain_donor_ttl(env: Env, donor: Address) {
+        let key_contrib = DonorKey::Contribution(donor.clone());
+        if env.storage().persistent().has(&key_contrib) {
             env.storage()
                 .persistent()
-                .extend_ttl(&key_count, 1000, 51840);
+                .extend_ttl(&key_contrib, TTL_THRESHOLD, TTL_TARGET);
+        }
+
+        let key_refunded = DonorKey::Refunded(donor);
+        if env.storage().persistent().has(&key_refunded) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key_refunded, TTL_THRESHOLD, TTL_TARGET);
         }
     }
 }

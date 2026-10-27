@@ -33,15 +33,15 @@ This repository is the contract and its TypeScript client. The web platform that
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Active: init
+    [*] --> Active: __constructor
     Active --> Active: fund / approve_milestone
     Active --> Completed: last milestone released
     Active --> Expired: expiry ledger reached
     Expired --> Expired: refund (pro-rata)
 ```
 
-1. `init` fixes the beneficiary, token, milestones, approver set, threshold and expiry. None of these can change afterwards.
-2. Donors call `fund`.
+1. `__constructor` fixes the beneficiary, token, milestones, approver set, threshold and expiry at deploy time. Deploy and init are atomic — there is no front-run window. None of these can change afterwards.
+2. Donors call `fund`. The total funded cannot exceed the sum of all milestone amounts (funding cap).
 3. Approvers call `approve_milestone`. When approvals reach the threshold, the milestone is released to the beneficiary automatically (milestones release in order). If funds are short at approval time, anyone can call `release_milestone` later once more funds arrive.
 4. After the expiry ledger, donors call `refund` to reclaim their share of what was never released.
 
@@ -49,15 +49,16 @@ stateDiagram-v2
 
 | Function | Who | What it does |
 |---|---|---|
-| `init(approvers, threshold, beneficiary, token, milestones, expiry_ledger)` | deployer, once | Configure the escrow |
-| `fund(donor, amount)` | donor | Deposit tokens |
+| `__constructor(approvers, threshold, beneficiary, token, milestones, expiry_ledger)` | deployer, once at deploy | Configure the escrow atomically at deploy time |
+| `fund(donor, amount)` | donor | Deposit tokens (capped at sum of milestones) |
 | `approve_milestone(approver, index)` | approver | Record an approval; releases at threshold if funds allow |
 | `release_milestone(index)` | anyone | Release a milestone whose threshold is met and funds are sufficient (in order) |
 | `refund(donor)` | donor, after expiry | Return the donor's pro-rata unreleased share |
 | `state()` · `funded_total()` · `released_total()` | anyone | Read escrow status |
 | `milestone(index)` · `milestone_count()` · `approvals(index)` | anyone | Read milestone data |
 | `donor_contribution(donor)` | anyone | Read a donor's total contribution |
-| `maintain_ttl(start_index)` | anyone | Extend storage lifetime |
+| `maintain_ttl(start_index)` | anyone | Extend storage lifetime for instance and milestone entries |
+| `maintain_donor_ttl(donor)` | anyone | Extend storage lifetime for a donor's entries |
 
 Refund math: `refund = contribution × (funded_total − released_total) ÷ funded_total`, using integer division. See [docs/design.md](docs/design.md) for the rounding policy.
 

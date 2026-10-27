@@ -6,13 +6,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- Milestone escrow contract: `init`, `fund`, `approve_milestone`, `release_milestone`, `refund`, views and `maintain_ttl`
+- Milestone escrow contract: `__constructor`, `fund`, `approve_milestone`, `release_milestone`, `refund`, views and `maintain_ttl`
 - M-of-N approver threshold
 - In-order milestone release (milestone *n* only after *n−1*)
 - Pro-rata refunds after expiry
-- TypeScript client for building unsigned transactions and reading state
-- Testnet deploy and demo scripts
-- Design and security documentation
+- Funding cap: `fund` rejects deposits where `funded_total + amount > sum(milestones)` (`FundingCapExceeded`)
+- `maintain_donor_ttl(donor)` — extends TTL for a single donor's contribution and refund entries
+- New error `ThresholdNotMet` — used by `release_milestone` when approvals are below threshold (was `InsufficientFunds`)
+- New error `InvalidExpiry` — used by `__constructor` when `expiry_ledger` is not strictly in the future (was `NotExpired`)
+- New error `FundingCapExceeded` — `fund` rejects over-cap deposits
+- TypeScript client error decoding: `decodeError(code)` and `decodeErrorFromResult(error)` for all 18 contract error codes
+- Randomized invariant test: seeded PRNG, multiple donors, partial releases, tested across 6 seeds
+- Refund-after-partial-release test: verifies pro-rata math after some milestones released
+
+### Changed
+- `init` replaced by `__constructor` — deploy and initialization are now atomic; no front-run window between deploy and init
+- `try_release` now updates state (released flag and `released_total`) **before** the token transfer to prevent re-entrancy and double-release
+- `maintain_ttl` now checks `has()` before `extend_ttl` on each entry (avoids panic on non-existent keys)
+- `maintain_ttl` now extends approval count entries in addition to released flags
+- TTL constants corrected: `TTL_THRESHOLD` = 17,280 ledgers (~1 day), `TTL_TARGET` = 518,400 ledgers (~30 days)
+- `scripts/demo.sh` no longer hardcodes a G-address as the token; accepts a C-address SAC contract ID via `USDC_TOKEN` env var or deploys a test asset
+- `scripts/demo.sh` and `scripts/invoke-examples.sh` use `__constructor` deploy (atomic deploy + init) instead of separate `init` call
+- CI wasm build step now sets `SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2=1`
+- `docs/design.md` and `docs/security.md` updated for all changes above
+
+### Fixed
+- `maintain_ttl` no longer panics on fresh escrows with no persistent entries
+- `maintain_ttl` now extends donor contribution/refunded entries (via `maintain_donor_ttl`)
 
 ---
 

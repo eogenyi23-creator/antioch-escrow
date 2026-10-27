@@ -41,6 +41,8 @@ jobs:
         run: cargo test
 
       - name: Build wasm
+        env:
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
         run: cargo build --target wasm32v1-none --release
 
   client:
