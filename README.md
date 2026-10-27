@@ -42,7 +42,7 @@ stateDiagram-v2
 
 1. `init` fixes the beneficiary, token, milestones, approver set, threshold and expiry. None of these can change afterwards.
 2. Donors call `fund`.
-3. Approvers call `approve_milestone`. When approvals reach the threshold, the milestone is released to the beneficiary automatically.
+3. Approvers call `approve_milestone`. When approvals reach the threshold, the milestone is released to the beneficiary automatically (milestones release in order). If funds are short at approval time, anyone can call `release_milestone` later once more funds arrive.
 4. After the expiry ledger, donors call `refund` to reclaim their share of what was never released.
 
 ## 📜 Contract interface
@@ -51,7 +51,8 @@ stateDiagram-v2
 |---|---|---|
 | `init(approvers, threshold, beneficiary, token, milestones, expiry_ledger)` | deployer, once | Configure the escrow |
 | `fund(donor, amount)` | donor | Deposit tokens |
-| `approve_milestone(approver, index)` | approver | Record an approval; releases at threshold |
+| `approve_milestone(approver, index)` | approver | Record an approval; releases at threshold if funds allow |
+| `release_milestone(index)` | anyone | Release a milestone whose threshold is met and funds are sufficient (in order) |
 | `refund(donor)` | donor, after expiry | Return the donor's pro-rata unreleased share |
 | `state()` · `funded_total()` · `released_total()` | anyone | Read escrow status |
 | `milestone(index)` · `milestone_count()` · `approvals(index)` | anyone | Read milestone data |
@@ -107,7 +108,7 @@ cargo test                 # contract: threshold logic, refunds, invariants
 cd client && npm test      # client: amount helpers and XDR building
 ```
 
-The test suite covers every invalid `init` case, funding by several donors, threshold and duplicate-approval rules, release blocked by insufficient funds, double-release and double-refund protection, and a randomized invariant that the contract never pays out more than it holds.
+The test suite covers every invalid `init` case, funding by several donors, threshold and duplicate-approval rules, release blocked by insufficient funds, in-order release enforcement, double-release and double-refund protection, and a randomized invariant that the contract never pays out more than it holds.
 
 ## 🔐 Security
 

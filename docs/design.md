@@ -42,7 +42,8 @@ Completed                           Expired  (only refund works)
 |---|---|---|
 | `init` | deployer, once | threshold in 1..=N, no duplicate approvers, at least one milestone, each amount > 0, expiry in the future |
 | `fund(donor, amount)` | donor (auth) | amount > 0, state Active, transfers token to the contract, records contribution |
-| `approve_milestone(approver, index)` | approver (auth) | approver in set, valid index, not released, no repeat approval by the same approver |
+| `approve_milestone(approver, index)` | approver (auth) | approver in set, valid index, not released, no repeat approval by the same approver; attempts release at threshold |
+| `release_milestone(index)` | anyone (no auth) | threshold met, funds sufficient, in-order, not already released, not expired; pays the fixed beneficiary |
 | `refund(donor)` | donor (auth) | only after expiry, once per donor |
 | views | anyone | `state`, `funded_total`, `released_total`, `milestone`, `milestone_count`, `donor_contribution`, `approvals` |
 | `maintain_ttl(start_index)` | anyone | extends storage lifetime |
@@ -51,9 +52,11 @@ Completed                           Expired  (only refund works)
 
 A milestone releases when its approvals reach the threshold **and** the contract holds enough unreleased funds to cover its amount.
 
-**Open decision to settle before coding:** if the threshold is reached but funds are short, the approvals stay recorded and the milestone is pending. Someone must then trigger the release after more funding arrives. Recommended: add a permissionless `release_milestone(index)` that releases a milestone whose threshold is already met and whose funds are now sufficient. Anyone can call it and it only ever pays the fixed beneficiary, so it adds no trust.
+If the threshold is reached but funds are short, the approvals stay recorded and the milestone remains pending. Once more funding arrives, a permissionless `release_milestone(index)` can release it. Anyone can call `release_milestone` — it only ever pays the fixed beneficiary, so it adds no trust. `approve_milestone` also attempts an automatic release when the threshold is crossed, so a manual call is only needed when funds were short at approval time.
 
-**Second decision:** whether milestones must release in order. Recommended for v1: require sequential release (index n only after n-1), because it makes the refund math and the public timeline simpler to reason about.
+### In-order release
+
+Milestones must release in order: milestone *n* can only be released after milestone *n−1* has been released (milestone 0 has no predecessor). This applies to both the automatic release inside `approve_milestone` and the manual `release_milestone` call. Sequential release makes the refund math and the public timeline simpler to reason about.
 
 ## Refund math
 
