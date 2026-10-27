@@ -2,7 +2,7 @@
 
 > A Soroban milestone escrow for transparent giving on Stellar. Donors fund, independent approvers release, unspent funds go back.
 
-![CI](https://github.com/eogenyi23-creator/antioch-escrow/actions/workflows/ci.yml/badge.svg)
+![CI](https://img.shields.io/github/actions/workflow/status/eogenyi23-creator/antioch-escrow/ci.yml?branch=main)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 ![PRs Welcome](https://img.shields.io/badge/PRs-welcome-blue.svg)
 ![Soroban](https://img.shields.io/badge/Built%20on-Soroban-0e75dd.svg)
