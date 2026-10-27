@@ -10,16 +10,18 @@
 #
 # After running:
 #   - Prints the deployed contract ID.
-#   - You still need to call `init` before the escrow can accept funds.
-#     See scripts/invoke-examples.sh for the init invocation example.
+#   - The contract is deployed WITHOUT constructor args. To initialise it,
+#     pass constructor args at deploy time using the stellar CLI:
+#       stellar contract deploy --wasm-hash <HASH> --source <ID> --network <NET> \
+#         -- __constructor --approvers '[...]' --threshold 2 \
+#         --beneficiary <ADDR> --token <SAC_CONTRACT_ID> \
+#         --milestones '[...]' --expiry_ledger <N>
+#     Or use scripts/invoke-examples.sh which shows the constructor invocation.
 #
 # Requirements:
 #   - stellar CLI v25.2.0+ configured with a funded testnet identity.
 #     Add one with: stellar keys generate --network testnet deployer
 #     Fund it with:  stellar keys fund --network testnet deployer
-#
-# Note: This script does NOT call `init`. Run deploy first, copy the contract
-# ID, then call init with your specific parameters.
 
 set -euo pipefail
 
@@ -64,5 +66,10 @@ echo ""
 echo "==> Deployed!"
 echo "    Contract ID: $CONTRACT_ID"
 echo ""
-echo "Next step — initialise the escrow:"
-echo "  ./scripts/invoke-examples.sh --contract $CONTRACT_ID --network $NETWORK"
+echo "Next step — initialise the escrow with constructor args:"
+echo "  stellar contract deploy --wasm-hash $WASM_HASH --source $SOURCE --network $NETWORK \\"
+echo "    -- __constructor --approvers '[...]' --threshold 2 \\"
+echo "    --beneficiary <ADDR> --token <SAC_CONTRACT_ID> \\"
+echo "    --milestones '[...]' --expiry_ledger <N>"
+echo ""
+echo "  Or use scripts/invoke-examples.sh --contract \$CONTRACT_ID --network $NETWORK"

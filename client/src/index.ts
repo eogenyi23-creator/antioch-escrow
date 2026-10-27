@@ -7,6 +7,7 @@
 
 export { EscrowClient, TESTNET_PASSPHRASE, MAINNET_PASSPHRASE } from "./client";
 export { toStroops, fromStroops, DECIMALS } from "./amounts";
+export { decodeError, decodeErrorFromResult } from "./errors";
 export type {
   EscrowClientConfig,
   FundArgs,
@@ -18,3 +19,4 @@ export type {
   MilestoneData,
   EscrowSnapshot,
 } from "./types";
+export type { ErrorCode, DecodedError } from "./errors";
