@@ -86,7 +86,7 @@ stellar contract build
 ./scripts/demo.sh                # init, fund, approve twice, release
 ```
 
-**Testnet contract ID:** `TO BE ADDED AFTER DEPLOYMENT`
+**Testnet contract ID:** `CDVECNXDBALTJUXWXLHINICDG3V4FNSYZ24IJSKKLESHX323VRII2BHP` ([view on Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDVECNXDBALTJUXWXLHINICDG3V4FNSYZ24IJSKKLESHX323VRII2BHP))
 
 ### Use the TypeScript client
 

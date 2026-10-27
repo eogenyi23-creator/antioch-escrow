@@ -13,7 +13,7 @@
 #   - The contract is deployed WITHOUT constructor args. To initialise it,
 #     pass constructor args at deploy time using the stellar CLI:
 #       stellar contract deploy --wasm-hash <HASH> --source <ID> --network <NET> \
-#         -- __constructor --approvers '[...]' --threshold 2 \
+#         --  --approvers '[...]' --threshold 2 \
 #         --beneficiary <ADDR> --token <SAC_CONTRACT_ID> \
 #         --milestones '[...]' --expiry_ledger <N>
 #     Or use scripts/invoke-examples.sh which shows the constructor invocation.
@@ -68,7 +68,7 @@ echo "    Contract ID: $CONTRACT_ID"
 echo ""
 echo "Next step — initialise the escrow with constructor args:"
 echo "  stellar contract deploy --wasm-hash $WASM_HASH --source $SOURCE --network $NETWORK \\"
-echo "    -- __constructor --approvers '[...]' --threshold 2 \\"
+echo "    --  --approvers '[...]' --threshold 2 \\"
 echo "    --beneficiary <ADDR> --token <SAC_CONTRACT_ID> \\"
 echo "    --milestones '[...]' --expiry_ledger <N>"
 echo ""

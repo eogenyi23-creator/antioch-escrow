@@ -40,3 +40,8 @@ Wallet or frontend security, key management by users, off-chain evidence checkin
 1. Independent audit
 2. Testnet run with real approver workflows
 3. Reviewed deployment and key-management plan for the approvers
+
+## Operational notes
+
+- The beneficiary must be able to receive the escrow's token (for a Stellar asset, that means holding a trustline). If it cannot, the approval that reaches the threshold reverts and nothing is recorded. Approvers can retry once the beneficiary has fixed its trustline.
+- Run `maintain_ttl`, and `maintain_donor_ttl` for each donor, periodically on long-lived escrows.

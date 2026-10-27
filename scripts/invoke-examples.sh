@@ -89,7 +89,6 @@ CONTRACT_ID=$(stellar contract deploy \
   --source "$SOURCE" \
   --network "$NETWORK" \
   -- \
-  __constructor \
   --approvers "[$APPROVER1,$APPROVER2,$APPROVER3]" \
   --threshold 2 \
   --beneficiary "$BENEFICIARY" \

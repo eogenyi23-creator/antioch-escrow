@@ -60,7 +60,7 @@ if ! command -v stellar &>/dev/null; then
 fi
 
 # Helper: resolve identity to public key.
-addr() { stellar keys address "$1" --network "$NETWORK"; }
+addr() { stellar keys address "$1"; }
 
 # ---------------------------------------------------------------------------
 # Token setup: resolve or deploy a SAC token contract.
@@ -77,15 +77,14 @@ else
 
   # Deploy a test asset SAC. The stellar CLI creates the asset and wraps it
   # in a SAC contract, returning the C-address contract ID.
-  TOKEN_ADDR=$(stellar contract asset deploy \
-    --asset "DEMO:${ISSUER}" \
-    --source deployer \
-    --network "$NETWORK")
+  stellar contract asset deploy --asset "DEMO:${ISSUER}" --source deployer --network "$NETWORK" >/dev/null 2>&1 || echo "  (test asset contract already exists, reusing it)"
+  TOKEN_ADDR=$(stellar contract id asset --asset "DEMO:${ISSUER}" --network "$NETWORK")
 
   echo "  Deployed test asset SAC: $TOKEN_ADDR"
 
   # Ensure the donor has a trustline to the test asset.
-  stellar trustline donor --asset "DEMO:${ISSUER}" --network "$NETWORK" || true
+  stellar tx new change-trust --source-account donor --line "DEMO:${ISSUER}" --network "$NETWORK"
+  stellar tx new change-trust --source-account beneficiary --line "DEMO:${ISSUER}" --network "$NETWORK"
 
   # Mint tokens to the donor.
   DONOR_ADDR=$(addr donor)
@@ -119,7 +118,7 @@ APPROVER3=$(addr approver3)
 BENEFICIARY=$(addr beneficiary)
 DONOR=$(addr donor)
 
-CURRENT_LEDGER=$(stellar ledger --network "$NETWORK" | jq -r '.sequence')
+CURRENT_LEDGER=$(curl -s -X POST https://soroban-testnet.stellar.org -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq -r '.result.sequence')
 # Expiry: 10 minutes from now (~120 ledgers at ~5s each).
 EXPIRY=$(( CURRENT_LEDGER + 120 ))
 
@@ -128,12 +127,11 @@ CONTRACT_ID=$(stellar contract deploy \
   --source deployer \
   --network "$NETWORK" \
   -- \
-  __constructor \
-  --approvers "[$APPROVER1,$APPROVER2,$APPROVER3]" \
+  --approvers "[\"$APPROVER1\",\"$APPROVER2\",\"$APPROVER3\"]" \
   --threshold 2 \
   --beneficiary "$BENEFICIARY" \
   --token "$TOKEN_ADDR" \
-  --milestones "[$MILESTONE_AMOUNT]" \
+  --milestones "[\"$MILESTONE_AMOUNT\"]" \
   --expiry_ledger "$EXPIRY")
 
 echo "  Contract ID: $CONTRACT_ID"
